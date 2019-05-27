@@ -264,42 +264,6 @@ class TestVisitors(parser_test_base.ParserTest):
     self.assertRaises(visitors.RaiseIfContainsUnknown.HasUnknown, find_on, "C")
     self.assertRaises(visitors.RaiseIfContainsUnknown.HasUnknown, find_on, "D")
 
-  def testCanonicalOrderingVisitor(self):
-    src1 = textwrap.dedent("""
-    from typing import TypeVar
-    def f() -> ?:
-      raise MemoryError()
-      raise IOError()
-    def f(x: list[a]) -> ?
-    def f(x: list[b or c]) -> ?
-    def f(x: list[tuple[d]]) -> ?
-    A = TypeVar("A")
-    C = TypeVar("C")
-    B = TypeVar("B")
-    D = TypeVar("D")
-    def f(d: A, c: B, b: C, a: D) -> ?
-    """)
-    src2 = textwrap.dedent("""
-    def f() -> ?:
-      raise IOError()
-      raise MemoryError()
-    def f(x: list[tuple[d]]) -> ?
-    def f(x: list[a]) -> ?
-    def f(x: list[b or c]) -> ?
-    A = TypeVar("A")
-    C = TypeVar("C")
-    B = TypeVar("B")
-    D = TypeVar("D")
-    def f(d: A, c: B, b: C, a: D) -> ?
-    """)
-    tree1 = self.Parse(src1)
-    tree1 = tree1.Visit(visitors.CanonicalOrderingVisitor(sort_signatures=True))
-    tree2 = self.Parse(src2)
-    tree2 = tree2.Visit(visitors.CanonicalOrderingVisitor(sort_signatures=True))
-    self.AssertSourceEquals(tree1, tree2)
-    self.assertEqual(tree1.Lookup("f").signatures[0].template,
-                     tree2.Lookup("f").signatures[0].template)
-
   def testInPlaceLookupExternalClasses(self):
     src1 = textwrap.dedent("""
       def f1() -> bar.Bar
@@ -405,10 +369,10 @@ class TestVisitors(parser_test_base.ParserTest):
     ast2 = self.Parse(src2).Replace(name="bar").Visit(visitors.AddNamePrefix())
     ast2 = ast2.Visit(visitors.LookupExternalTypes(
         {"foo": ast1, "bar": ast2}, self_name="bar"))
-    self.assertMultiLineEqual(pytd.Print(ast2), textwrap.dedent("""\
+    self.assertMultiLineEqual(pytd.Print(ast2), textwrap.dedent("""
       class bar.A(object):
           x: int
-    """))
+    """).strip())
 
   def testLookupTwoStarAliasesWithDefaultPyi(self):
     src1 = "def __getattr__(name) -> ?"
@@ -753,15 +717,14 @@ class TestVisitors(parser_test_base.ParserTest):
           class C: ...
           D = A.B.C
     """)
-    expected = textwrap.dedent("""\
+    expected = textwrap.dedent("""
       from typing import Type
 
       class foo.A:
           class foo.A.B:
-              class foo.A.B.C:
-                  pass
+              class foo.A.B.C: ...
               D: Type[foo.A.B.C]
-    """)
+    """).strip()
     self.assertMultiLineEqual(expected, pytd.Print(
         self.Parse(src).Replace(name="foo").Visit(visitors.AddNamePrefix())))
 
@@ -783,13 +746,11 @@ class TestVisitors(parser_test_base.ParserTest):
       foo.C: Type[foo.A.B]
 
       class foo.A:
-          class foo.A.B:
-              pass
+          class foo.A.B: ...
 
       class foo.D:
           b: foo.A.B
           def f(self, x: foo.A.B) -> foo.A.B: ...
-
 
       def foo.f(x: foo.A.B) -> foo.A.B: ...""")
     self.assertMultiLineEqual(expected, pytd.Print(
@@ -804,8 +765,7 @@ class TestVisitors(parser_test_base.ParserTest):
     expected = textwrap.dedent("""\
       class foo.A:
           class foo.A.B:
-              def copy(self) -> foo.A.B: ...
-    """)
+              def copy(self) -> foo.A.B: ...""")
     self.assertMultiLineEqual(expected, pytd.Print(
         self.Parse(src).Replace(name="foo").Visit(visitors.AddNamePrefix())))
 
@@ -1008,16 +968,14 @@ class TestVisitors(parser_test_base.ParserTest):
       class `TypeVar`(object): ...
     """)
     ast = self.Parse(src).Visit(visitors.CreateTypeParametersForSignatures())
-    self.assertMultiLineEqual(pytd.Print(ast), textwrap.dedent("""\
+    self.assertMultiLineEqual(pytd.Print(ast), textwrap.dedent("""
       import typing
 
       _T0 = TypeVar('_T0')
 
-      class `TypeVar`(object):
-          pass
+      class `TypeVar`(object): ...
 
-
-      def f(x: _T0) -> _T0: ..."""))
+      def f(x: _T0) -> _T0: ...""").strip())
 
   def testCreateTypeParametersForNew(self):
     src = textwrap.dedent("""
@@ -1027,7 +985,7 @@ class TestVisitors(parser_test_base.ParserTest):
           def __new__(cls: Type[Bar], x, y, z) -> Bar
     """)
     ast = self.Parse(src).Visit(visitors.CreateTypeParametersForSignatures())
-    self.assertMultiLineEqual(pytd.Print(ast), textwrap.dedent("""\
+    self.assertMultiLineEqual(pytd.Print(ast), textwrap.dedent("""
       from typing import TypeVar
 
       _TBar = TypeVar('_TBar', bound=Bar)
@@ -1038,16 +996,16 @@ class TestVisitors(parser_test_base.ParserTest):
 
       class Bar:
           def __new__(cls: Type[_TBar], x, y, z) -> _TBar: ...
-    """))
+    """).strip())
 
   def testKeepCustomNew(self):
-    src = textwrap.dedent("""\
+    src = textwrap.dedent("""
       class Foo:
           def __new__(cls: Type[X]) -> X: ...
 
       class Bar:
           def __new__(cls, x: Type[Bar]) -> Bar: ...
-    """)
+    """).strip()
     ast = self.Parse(src).Visit(visitors.CreateTypeParametersForSignatures())
     self.assertMultiLineEqual(pytd.Print(ast), src)
 
@@ -1066,10 +1024,10 @@ class TestVisitors(parser_test_base.ParserTest):
       class A(object):
           def __new__(cls: Type[A]) -> A: ...
     """)
-    self.assertMultiLineEqual(pytd.Print(self.Parse(src)), textwrap.dedent("""\
+    self.assertMultiLineEqual(pytd.Print(self.Parse(src)), textwrap.dedent("""
       class A(object):
           def __new__(cls) -> A: ...
-    """))
+    """).strip())
 
   def testPrintNoReturn(self):
     src = textwrap.dedent("""
@@ -1102,29 +1060,8 @@ class TestVisitors(parser_test_base.ParserTest):
       import builtins
       class MyError(builtins.KeyError): ...
     """)
-    self.assertMultiLineEqual(pytd.Print(self.Parse(src)), textwrap.dedent("""\
-      class MyError(KeyError):
-          pass
-    """))
-
-
-class TestAncestorMap(unittest.TestCase):
-
-  def testGetAncestorMap(self):
-    ancestors = visitors._GetAncestorMap()
-    # TypeDeclUnit is the top of the food chain - no ancestors other than
-    # itself.
-    self.assertEqual({"TypeDeclUnit"}, ancestors["TypeDeclUnit"])
-    # NamedType can appear in quite a few places, spot check a few.
-    named_type = ancestors["NamedType"]
-    self.assertIn("TypeDeclUnit", named_type)
-    self.assertIn("Parameter", named_type)
-    self.assertIn("GenericType", named_type)
-    self.assertIn("NamedType", named_type)
-    # Check a few places where NamedType cannot appear.
-    self.assertNotIn("ClassType", named_type)
-    self.assertNotIn("NothingType", named_type)
-    self.assertNotIn("AnythingType", named_type)
+    self.assertMultiLineEqual(pytd.Print(self.Parse(src)),
+                              "class MyError(KeyError): ...")
 
 
 class ReplaceModulesWithAnyTest(unittest.TestCase):

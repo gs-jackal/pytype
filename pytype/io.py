@@ -1,4 +1,3 @@
-#!/usr/bin/python2.7
 """Public interface to top-level pytype functions."""
 
 from __future__ import print_function
@@ -37,11 +36,14 @@ ERROR_DOC_URL = "https://google.github.io/pytype/errors.html"
 
 def read_source_file(input_filename):
   try:
-    with open(input_filename, "r") as fi:
-      return fi.read()
+    if six.PY3:
+      with open(input_filename, "r", encoding="utf8") as fi:
+        return fi.read()
+    else:
+      with open(input_filename, "rb") as fi:
+        return fi.read().decode("utf8")
   except IOError:
     raise utils.UsageError("Could not load input file %s" % input_filename)
-
 
 def _call(analyze_types, input_filename, errorlog, options, loader):
   """Helper function to call analyze.check/infer_types."""
@@ -94,13 +96,9 @@ def generate_pyi(input_filename, errorlog, options, loader):
   log.info("\n%s", result)
   log.info("========================================")
 
-  if not result.endswith("\n"):
-    result += "\n"
-  result_prefix = ""
+  result += "\n"
   if options.quick:
-    result_prefix += "# (generated with --quick)\n"
-  if result_prefix:
-    result = result_prefix + "\n" + result
+    result = "# (generated with --quick)\n\n" + result
   return result, mod
 
 
